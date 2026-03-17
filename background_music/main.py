@@ -19,6 +19,7 @@ import argparse
 import os
 import random
 import re
+import signal
 import sys
 import time
 from datetime import datetime, timedelta
@@ -146,7 +147,7 @@ class SequentialPlaylist:
             return None, False
         f = self.files[self.index % len(self.files)]
         self.index += 1
-        return f, False  # playlists don't loop individual tracks
+        return f, False
 
 def resolve_source(source, config_dir, playlists):
     if source.startswith("random:"):
@@ -162,7 +163,6 @@ def resolve_source(source, config_dir, playlists):
             playlists[key] = SequentialPlaylist(load_playlist(config_dir / source))
         return playlists[key].next
     else:
-        # Single file — loop it indefinitely
         path = str(config_dir / source)
         return lambda: (path, True)
 
@@ -212,7 +212,7 @@ class Player:
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 def in_range(start, end, hour, minute):
-    if start[0] is None:  # wildcard hour
+    if start[0] is None:
         return start[1] <= minute < end[1]
     return start <= (hour, minute) < end
 
@@ -221,14 +221,12 @@ def next_event_time(entries, now):
     candidates = []
     for entry in entries:
         if entry.start[0] is None:
-            # Wildcard: start and end boundaries fire every hour
             for minute in [entry.start[1], entry.end[1]]:
                 t = now.replace(minute=minute, second=0, microsecond=0)
                 if t <= now:
                     t += timedelta(hours=1)
                 candidates.append(t)
         else:
-            # Fixed time: find next matching day for each boundary
             for boundary_hm in [entry.start, entry.end]:
                 for day_offset in range(8):
                     d = now + timedelta(days=day_offset)
@@ -264,6 +262,8 @@ def config_changed(inotify, config_path):
     return any(e.name == name for e in events)
 
 def run(config_path):
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+
     config_dir    = Path(config_path).parent.resolve()
     entries       = load_config(config_path)
     playlists     = {}
@@ -275,13 +275,12 @@ def run(config_path):
     print(f"[bgmus] Loaded {len(entries)} schedule entries from {config_path}")
     try:
         while True:
-            # Check for config changes
             if config_changed(inotify, config_path):
                 print("[bgmus] Config changed, reloading...")
                 try:
                     entries       = load_config(config_path)
                     playlists     = {}
-                    current_entry = None  # force re-evaluation
+                    current_entry = None
                     current_next  = None
                     print(f"[bgmus] Reloaded {len(entries)} schedule entries")
                 except SystemExit:
@@ -305,7 +304,6 @@ def run(config_path):
                 else:
                     print("[bgmus] No active slot — silence.")
             elif entry and not player.is_playing():
-                # Track ended naturally — play next in playlist
                 if current_next:
                     nxt, loop = current_next()
                     if nxt:
@@ -315,11 +313,11 @@ def run(config_path):
             if next_wake:
                 sleep_secs = (next_wake - datetime.now()).total_seconds()
                 if player.is_playing() and not player.looping:
-                    sleep_secs = min(sleep_secs, TICK)  # wake to check for track end
+                    sleep_secs = min(sleep_secs, TICK)
                 print(f"[bgmus] Sleeping until {next_wake.strftime('%H:%M:%S')} ({fmt_duration(sleep_secs)})")
                 time.sleep(max(0, sleep_secs))
             else:
-                time.sleep(60)  # no entries — check again in a minute
+                time.sleep(60)
 
     except KeyboardInterrupt:
         print("\n[bgmus] Stopping...")
