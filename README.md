@@ -9,12 +9,15 @@ Plays music with pygame. AI-generated and unreviewed.
 Plan the music you want to play ahead of time so you actually listen to it. 
 Idem vs ipse vs attention.
 
+I don't like having to mess with my phone to play music because it a distraction machine.
+
 An alternative to algorithms.
 
 ## Alternatives and prior work
-There is a thing called musicron focused on playing projects. I could not find the home page.
+There is a tool called `musicron` focused on playing projects. I could not find the home page.
+`cmus` is a command line tool which has a playlist and a remote contro.
 
-You could use spotify and just play what the algorithms
+You could use spotify and just play music with algorithms or use your phone.
 
 ## Installation
 pipx install background-music
