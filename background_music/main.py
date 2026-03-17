@@ -29,7 +29,7 @@ import pygame.mixer as mixer
 
 FADE_STEPS    = 20    # number of volume steps when fading out
 FADE_DURATION = 3.0   # seconds to fade out over
-TICK          = 5     # seconds between track-end checks while playing
+TICK          = 5     # seconds between track-end checks while playing a playlist
 
 CONFIG_FORMAT = """
 config format:
@@ -143,10 +143,10 @@ class SequentialPlaylist:
 
     def next(self):
         if not self.files:
-            return None
+            return None, False
         f = self.files[self.index % len(self.files)]
         self.index += 1
-        return f
+        return f, False  # playlists don't loop individual tracks
 
 def resolve_source(source, config_dir, playlists):
     if source.startswith("random:"):
@@ -155,15 +155,16 @@ def resolve_source(source, config_dir, playlists):
             files = load_playlist(config_dir / spec)
         else:
             files = [f.strip() for f in spec.split(",")]
-        return lambda: str(config_dir / random.choice(files)) if files else None
+        return lambda: (str(config_dir / random.choice(files)), False) if files else (None, False)
     elif source.endswith(".txt"):
         key = str(config_dir / source)
         if key not in playlists:
             playlists[key] = SequentialPlaylist(load_playlist(config_dir / source))
         return playlists[key].next
     else:
+        # Single file — loop it indefinitely
         path = str(config_dir / source)
-        return lambda: path
+        return lambda: (path, True)
 
 # ── Player ────────────────────────────────────────────────────────────────────
 class Player:
@@ -171,13 +172,15 @@ class Player:
         self._channel = None
         self._sound   = None
         self._vol     = 1.0
+        self.looping  = False
 
-    def play(self, path):
+    def play(self, path, loop=False):
         self.stop()
         try:
             self._sound   = mixer.Sound(path)
             self._vol     = 1.0
-            self._channel = self._sound.play(loops=-1)
+            self.looping  = loop
+            self._channel = self._sound.play(loops=-1 if loop else 0)
             print(f"[bgmus] Playing: {path}")
         except Exception as e:
             print(f"[bgmus] Error playing {path}: {e}", file=sys.stderr)
@@ -201,7 +204,8 @@ class Player:
         if self._channel:
             self._channel.stop()
             self._channel = None
-        self._sound = None
+        self._sound  = None
+        self.looping = False
 
     def is_playing(self):
         return self._channel is not None and self._channel.get_busy()
@@ -293,24 +297,24 @@ def run(config_path):
                 current_next  = None
                 if entry:
                     current_next = resolve_source(entry.source, config_dir, playlists)
-                    nxt = current_next()
+                    nxt, loop = current_next()
                     if nxt:
-                        player.play(nxt)
+                        player.play(nxt, loop=loop)
                     else:
                         print(f"[bgmus] Warning: no files for {entry.source}")
                 else:
                     print("[bgmus] No active slot — silence.")
             elif entry and not player.is_playing():
-                # Track ended naturally — play next
+                # Track ended naturally — play next in playlist
                 if current_next:
-                    nxt = current_next()
+                    nxt, loop = current_next()
                     if nxt:
-                        player.play(nxt)
+                        player.play(nxt, loop=loop)
 
             next_wake = next_event_time(entries, datetime.now())
             if next_wake:
                 sleep_secs = (next_wake - datetime.now()).total_seconds()
-                if player.is_playing():
+                if player.is_playing() and not player.looping:
                     sleep_secs = min(sleep_secs, TICK)  # wake to check for track end
                 print(f"[bgmus] Sleeping until {next_wake.strftime('%H:%M:%S')} ({fmt_duration(sleep_secs)})")
                 time.sleep(max(0, sleep_secs))

@@ -1,6 +1,10 @@
 # background-music
 Schedule music to play in the background.
 
+Detects changes to config file while running.
+
+Plays music with pygame. AI-generated and unreviewed.
+
 ## Motivation
 Plan the music you want to play ahead of time so you actually listen to it. 
 Idem vs ipse vs attention.
