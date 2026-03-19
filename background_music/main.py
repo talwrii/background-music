@@ -162,6 +162,11 @@ def resolve_source(source, config_dir, playlists):
         return playlists[key].next
     else:
         path = str(config_dir / source)
+        SUPPORTED = {".mp3", ".wav", ".ogg", ".flac"}
+        ext = Path(path).suffix.lower()
+        if ext not in SUPPORTED:
+            print(f"[bgmus] Warning: unsupported format {ext!r}, skipping {path}", file=sys.stderr)
+            return lambda: (None, False)
         return lambda: (path, True)
 
 # ── Player ────────────────────────────────────────────────────────────────────
