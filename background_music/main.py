@@ -14,10 +14,13 @@ Config format:
     10-11 random:file2.wav,file3.wav
     11-13 playlist.txt          # work through sequentially
     13-14 random:playlist.txt
+    13-14 continuing:playlist.txt       # persistent position across sessions
+    13-14 continuing+random:playlist.txt # persistent, then random fill
     Mon 18:30-18:40 monday.wav
     *:10-*:15 file.wav          # 10-15 minutes past every hour
 """
 import argparse
+import json
 import os
 import random
 import re
@@ -39,12 +42,16 @@ config format:
   10-11 random:a.wav,b.wav         # pick one at random
   11-13 playlist.txt               # work through sequentially
   13-14 random:playlist.txt        # random from playlist
+  13-14 continuing:playlist.txt    # persistent position across sessions
+  13-14 continuing+random:playlist.txt  # persistent, then random fill
   Mon 18:30-18:40 monday.wav       # specific day + HH:MM times
   *:10-*:15 file.wav               # 10–15 minutes past every hour
   time ranges: H-H or HH:MM-HH:MM or *:MM-*:MM
   day prefix:  Mon Tue Wed Thu Fri Sat Sun
   random:      comma-separated files or a .txt playlist
   playlist:    one file per line, # comments ignored
+  continuing:  playlist with persistent position between sessions
+  continuing+random: persistent position, then random fill when exhausted
 """
 
 # ── Audio init ────────────────────────────────────────────────────────────────
@@ -127,7 +134,18 @@ def load_config(path):
     return entries
 
 # ── Source resolution ─────────────────────────────────────────────────────────
+SUPPORTED = {".mp3", ".wav", ".ogg", ".flac"}
+
 def load_playlist(path):
+    """Load files from a playlist file or directory."""
+    path = Path(path)
+    if path.is_dir():
+        files = sorted(
+            str(f) for f in path.iterdir()
+            if f.is_file() and f.suffix.lower() in SUPPORTED
+        )
+        return files
+    # Text playlist file
     files = []
     with open(path) as f:
         for line in f:
@@ -147,22 +165,98 @@ class SequentialPlaylist:
         self.index += 1
         return f, False
 
+# ── Continuing playlist ───────────────────────────────────────────────────────
+class ContinuingPlaylist:
+    """Persistent playlist that remembers position across sessions."""
+
+    def __init__(self, playlist_path, random_fill=False):
+        self.playlist_path = Path(playlist_path)
+        if self.playlist_path.is_dir():
+            self.state_path = self.playlist_path.with_name(self.playlist_path.name + ".state")
+        else:
+            self.state_path = self.playlist_path.with_suffix(self.playlist_path.suffix + ".state")
+        self.random_fill   = random_fill
+        self.files         = load_playlist(playlist_path)
+        self.index         = self._load_state()
+        self.exhausted     = self.index >= len(self.files)
+
+    def _load_state(self):
+        try:
+            data = json.loads(self.state_path.read_text())
+            idx = int(data.get("index", 0))
+            print(f"[bgmus] continuing: resuming at index {idx} of {len(self.files)}")
+            return idx
+        except Exception:
+            return 0
+
+    def _save_state(self):
+        try:
+            self.state_path.write_text(json.dumps({"index": self.index}))
+        except Exception as e:
+            print(f"[bgmus] Warning: could not save continuing state: {e}", file=sys.stderr)
+
+    def next(self):
+        if not self.files:
+            return None, False
+
+        if self.index < len(self.files):
+            # Still working through sequentially
+            f = self.files[self.index]
+            self.index += 1
+            self._save_state()
+            if self.index >= len(self.files):
+                self.exhausted = True
+                # Reset index so next session starts from beginning
+                self.index = 0
+                self._save_state()
+                print(f"[bgmus] continuing: playlist exhausted, will restart from beginning next session")
+            return f, False
+        else:
+            # Exhausted — random fill or silence
+            if self.random_fill:
+                f = random.choice(self.files)
+                return f, False
+            return None, False
+
+
+def is_playlist_or_dir(path):
+    """Return True if path is a directory or a non-audio file (i.e. a playlist)."""
+    p = Path(path)
+    if p.is_dir():
+        return True
+    return p.suffix.lower() not in SUPPORTED
+
 def resolve_source(source, config_dir, playlists):
-    if source.startswith("random:"):
+    if source.startswith("continuing+random:"):
+        spec = source[len("continuing+random:"):]
+        path = str(config_dir / spec)
+        key = f"continuing+random:{path}"
+        if key not in playlists:
+            playlists[key] = ContinuingPlaylist(path, random_fill=True)
+        return playlists[key].next
+    elif source.startswith("continuing:"):
+        spec = source[len("continuing:"):]
+        path = str(config_dir / spec)
+        key = f"continuing:{path}"
+        if key not in playlists:
+            playlists[key] = ContinuingPlaylist(path, random_fill=False)
+        return playlists[key].next
+    elif source.startswith("random:"):
         spec = source[len("random:"):]
-        if spec.endswith(".txt"):
-            files = load_playlist(config_dir / spec)
+        full = config_dir / spec
+        if is_playlist_or_dir(full):
+            files = load_playlist(full)
         else:
             files = [f.strip() for f in spec.split(",")]
-        return lambda: (str(config_dir / random.choice(files)), False) if files else (None, False)
-    elif source.endswith(".txt"):
+            files = [str(config_dir / f) for f in files]
+        return (lambda files: lambda: (random.choice(files), False) if files else (None, False))(files)
+    elif is_playlist_or_dir(config_dir / source):
         key = str(config_dir / source)
         if key not in playlists:
             playlists[key] = SequentialPlaylist(load_playlist(config_dir / source))
         return playlists[key].next
     else:
         path = str(config_dir / source)
-        SUPPORTED = {".mp3", ".wav", ".ogg", ".flac"}
         ext = Path(path).suffix.lower()
         if ext not in SUPPORTED:
             print(f"[bgmus] Warning: unsupported format {ext!r}, skipping {path}", file=sys.stderr)
@@ -324,14 +418,11 @@ def run_play(config_path, file_path=None):
     """Play a specific file or the current active slot, then exit."""
     init_audio()
     config_dir = Path(config_path).parent.resolve()
-
     if file_path:
-        # Play a specific file directly
         path = file_path
         loop = False
         print(f"[bgmus] --play: forcing playback of {path}")
     else:
-        # Play whatever the current schedule says
         entries = load_config(config_path)
         entry = active_entry(entries, datetime.now())
         if not entry:
@@ -346,15 +437,12 @@ def run_play(config_path, file_path=None):
             sys.exit(1)
         path = nxt
         print(f"[bgmus] --play: active slot is {entry}")
-
     player = Player()
     player.play(path, loop=loop)
-
     if not player.is_playing():
         print("[bgmus] --play: playback failed to start (see error above).", file=sys.stderr)
         mixer.quit()
         sys.exit(1)
-
     print("[bgmus] Press Ctrl+C to stop.")
     try:
         while player.is_playing():
@@ -363,7 +451,6 @@ def run_play(config_path, file_path=None):
     except KeyboardInterrupt:
         print("\n[bgmus] Stopping...")
         player.fade_out()
-
     mixer.quit()
     sys.exit(0)
 
@@ -396,7 +483,7 @@ def main():
     if args.play is not None:
         file_path = None if args.play is True else args.play
         run_play(args.config, file_path)
-        return  # run_play calls sys.exit, but just in case
+        return
 
     run(args.config)
 

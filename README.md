@@ -1,17 +1,16 @@
 # background-music
-Schedule music to play in the background.
+Schedule music to play in the background. Cron for music.
 
 Detects changes to config file while running.
-
 Plays music with pygame. AI-generated and unreviewed - but I use it.
 
 ## Motivation
 Plan the music you want to play ahead of time so you actually listen to it. 
 Idem vs ipse vs attention.
 
-I don't like having to mess with my phone to play music because it a distraction machine.
+I don't like having to mess with my phone to play music because it a distraction machine.  An alternative to algorithms.
 
-An alternative to algorithms.
+I have this running on a raspberry pi 2 with a usb a dongle.
 
 ## Alternatives and prior work
 There is a tool called `musicron` focused on playing projects. I could not find the home page.
@@ -24,7 +23,7 @@ pipx install background-music
 
 
 ## Usage
-Write config
+Write config ike so
 
 ```
 9-10 file.wav
@@ -36,7 +35,10 @@ Mon 18:30-18:40  monday.wav
 Tue 18:30-18:40  monday.wav
 ```
 
-bgmus config
+Then run: `bgmus config`
+
+`continuing` - keep on playing through a playlist or direction between different sessions
+`continuing+random` - keep on playing through a playlist then randomize until the session ends.
 
 
 ## Hacking
