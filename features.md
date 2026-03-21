@@ -1,5 +1,8 @@
 Here's what's in the current background-music / bgmus:
 
+# General
+Minimum dependencies
+
 # Scheduling
 
 Time-based schedule from a config file (9-10 file.mp3)
@@ -15,10 +18,10 @@ continuing+random: — persistent sequential, then random fill when exhausted
 Directory source — scans directory alphabetically instead of a playlist file
 
 # Format handling
-
 Whitelist of supported formats: mp3, wav, ogg, flac
 Warns and skips unsupported formats (e.g. opus)
 Runtime
+Deals with long iles - streams from disk
 
 # Fade in/out between slots
 inotify config file watching — wakes up immediately on config change rather than waiting for next slot

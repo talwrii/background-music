@@ -259,26 +259,27 @@ def resolve_source(source, config_dir, playlists):
 # Player
 class Player:
     def __init__(self):
-        self._channel = None
-        self._sound   = None
-        self._vol     = 1.0
-        self.looping  = False
+        self._vol    = 1.0
+        self.looping = False
+        self._playing = False
 
     def play(self, path, loop=False):
         self.stop()
         try:
-            self._sound   = mixer.Sound(path)
-            self._vol     = 1.0
             self.looping  = loop
-            self._channel = self._sound.play(loops=-1 if loop else 0)
+            self._vol     = 1.0
+            mixer.music.load(path)
+            mixer.music.set_volume(self._vol)
+            mixer.music.play(loops=-1 if loop else 0)
+            self._playing = True
             print(f"[bgmus] Playing: {path}")
         except Exception as e:
             print(f"[bgmus] Error playing {path}: {e}", file=sys.stderr)
+            self._playing = False
 
     def set_volume(self, vol):
         self._vol = max(0.0, min(1.0, vol))
-        if self._channel:
-            self._channel.set_volume(self._vol)
+        mixer.music.set_volume(self._vol)
 
     def fade_out(self):
         if not self.is_playing():
@@ -291,14 +292,12 @@ class Player:
         self.stop()
 
     def stop(self):
-        if self._channel:
-            self._channel.stop()
-            self._channel = None
-        self._sound  = None
-        self.looping = False
+        mixer.music.stop()
+        self._playing = False
+        self.looping  = False
 
     def is_playing(self):
-        return self._channel is not None and self._channel.get_busy()
+        return mixer.music.get_busy()
 
 # Scheduler
 def in_range(start, end, hour, minute):
