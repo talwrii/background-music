@@ -121,6 +121,7 @@ def parse_line(line, lineno):
     return ScheduleEntry(days, start, end, source)
 
 def load_config(path):
+    print(f"[bgmus] Reading config from {path}")
     entries = []
     with open(path) as f:
         for i, line in enumerate(f, 1):
@@ -379,6 +380,7 @@ def run(config_path):
             now   = datetime.now()
             entry = active_entry(entries, now)
             if entry != current_entry:
+                print(f"[bgmus] Slot change at {now.strftime('%H:%M:%S')}: {current_entry} -> {entry}")
                 if player.is_playing():
                     print("[bgmus] Fading out...")
                     player.fade_out()
@@ -390,7 +392,7 @@ def run(config_path):
                     if nxt:
                         player.play(nxt, loop=loop)
                     else:
-                        print(f"[bgmus] Warning: no files for {entry.source}")
+                        print(f"[bgmus] Warning: no files resolved for {entry.source} — not playing")
                 else:
                     print("[bgmus] No active slot — silence.")
             elif entry and not player.is_playing():
@@ -398,12 +400,18 @@ def run(config_path):
                     nxt, loop = current_next()
                     if nxt:
                         player.play(nxt, loop=loop)
+                    else:
+                        print(f"[bgmus] No next track resolved for {entry.source} — staying silent")
+                else:
+                    print(f"[bgmus] No resolver for {entry.source} — not playing")
             next_wake = next_event_time(entries, datetime.now())
             if next_wake:
                 sleep_secs = (next_wake - datetime.now()).total_seconds()
                 if player.is_playing() and not player.looping:
                     sleep_secs = min(sleep_secs, TICK)
-                print(f"[bgmus] Sleeping until {next_wake.strftime('%H:%M:%S')} ({fmt_duration(sleep_secs)})")
+                next_entry = active_entry(entries, next_wake + timedelta(seconds=1))
+                next_str = f" (next: {next_entry.source})" if next_entry else " (next: silence)"
+                print(f"[bgmus] Sleeping until {next_wake.strftime('%H:%M:%S')} ({fmt_duration(sleep_secs)}){next_str}")
                 time.sleep(max(0, sleep_secs))
             else:
                 time.sleep(60)
