@@ -1,4 +1,5 @@
 *.egg-info
+deploy
 dist
 __pycache__
 token

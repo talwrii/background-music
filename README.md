@@ -1,7 +1,7 @@
 # background-music
 Schedule music to play in the background. Cron for music.
 
-Detects changes to config file while running.
+Detects changes to the config file immeidately.
 Plays music with pygame. AI-generated and unreviewed - but I use it.
 
 ## Motivation
