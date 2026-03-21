@@ -32,7 +32,8 @@ Write config ike so
 13-14 random:playlist.txt
 
 Mon 18:30-18:40  monday.wav
-Tue 18:30-18:40  monday.wav
+Tue 18:30-18:40  tuesday.wav
+Wed,Thu 18:30-18:40  mid-week.wav
 ```
 
 Then run: `bgmus config`

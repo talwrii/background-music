@@ -102,11 +102,14 @@ def parse_line(line, lineno):
     if len(parts) < 2:
         raise ValueError(f"Line {lineno}: too few fields: {line!r}")
     days = None
-    if parts[0].lower() in DAY_MAP:
-        days = {DAY_MAP[parts[0].lower()]}
+    if re.match(r'^[A-Za-z]{3}(,[A-Za-z]{3})*$', parts[0]):
+        day_strs = parts[0].split(",")
+        days = set()
+        for ds in day_strs:
+            if ds.lower() not in DAY_MAP:
+                raise ValueError(f"Line {lineno}: unknown day {ds!r}")
+            days.add(DAY_MAP[ds.lower()])
         parts = parts[1:]
-    elif re.match(r'^[A-Za-z]{3}$', parts[0]):
-        raise ValueError(f"Line {lineno}: unknown day {parts[0]!r}")
     time_part = parts[0]
     if "-" not in time_part:
         raise ValueError(f"Line {lineno}: expected time range like 9-10 or 09:00-10:00 or *:MM-*:MM")
