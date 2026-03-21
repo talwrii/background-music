@@ -346,18 +346,21 @@ def config_changed(inotify, config_path):
     """Check for any queued inotify events without blocking."""
     events = inotify.read(timeout=0)
     name   = Path(config_path).name
-    for e in events:
+
+    matched = [e for e in events if e.name == name]
+    for e in matched:
         print(f"[bgmus] inotify event: {e.name!r} flags={inotify_simple.flags.from_mask(e.mask)}")
-    return any(e.name == name for e in events)
+    return bool(matched)
 
 def wait_for_change_or_timeout(inotify, config_path, sleep_secs):
     """Sleep for sleep_secs, but wake up early if config file changes."""
     timeout_ms = int(sleep_secs * 1000)
     events = inotify.read(timeout=timeout_ms)
     name   = Path(config_path).name
-    for e in events:
+    matched = [e for e in events if e.name == name]
+    for e in matched:
         print(f"[bgmus] inotify event: {e.name!r} flags={inotify_simple.flags.from_mask(e.mask)}")
-    return any(e.name == name for e in events)
+    return bool(matched)
 
 def reload_config(config_path, entries, playlists, current_entry, current_next):
     try:
