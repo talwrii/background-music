@@ -2,13 +2,11 @@
 """
 bgmus - Background music scheduler daemon.
 Plays music according to a time-based schedule, with fade between slots.
-
 Usage:
     bgmus <config>                  Run the scheduler daemon
     bgmus --check <config>          Parse and print the schedule, then exit
     bgmus --play <config>           Play the current active slot immediately
     bgmus --play FILE <config>      Play a specific file immediately
-
 Config format:
     9-10 file.wav
     10-11 random:file2.wav,file3.wav
@@ -31,12 +29,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import inotify_simple
 import pygame.mixer as mixer
-
 FADE_STEPS    = 20    # number of volume steps when fading out
 FADE_DURATION = 3.0   # seconds to fade out over
 TICK          = 5     # seconds between track-end checks while playing a playlist
 SUPPORTED     = {".mp3", ".wav", ".ogg", ".flac"}
-
 CONFIG_FORMAT = """
 config format:
   9-10 file.wav                    # play daily 9-10am
@@ -54,13 +50,11 @@ config format:
   continuing:  playlist with persistent position between sessions
   continuing+random: persistent position, then random fill when exhausted
 """
-
 # Audio init
 def init_audio():
     mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=2048)
     mixer.init()
     print(f"[bgmus] Audio: {mixer.get_init()}")
-
 # Formatting
 def fmt_duration(secs):
     secs = int(secs)
@@ -69,7 +63,6 @@ def fmt_duration(secs):
     if h:
         return f"{h}h{m:02d}m{s:02d}s"
     return f"{m}m{s:02d}s"
-
 # Config parsing
 class ScheduleEntry:
     def __init__(self, days, start, end, source):
@@ -77,15 +70,12 @@ class ScheduleEntry:
         self.start  = start
         self.end    = end
         self.source = source
-
     def __repr__(self):
         days = f"day={self.days}" if self.days else "daily"
         sh = "*" if self.start[0] is None else f"{self.start[0]:02d}"
         eh = "*" if self.end[0]   is None else f"{self.end[0]:02d}"
         return f"<{days} {sh}:{self.start[1]:02d}-{eh}:{self.end[1]:02d} {self.source}>"
-
 DAY_MAP = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-
 def parse_time(s):
     if s.startswith("*:"):
         return (None, int(s[2:]))
@@ -93,7 +83,6 @@ def parse_time(s):
         h, m = s.split(":")
         return int(h), int(m)
     return int(s), 0
-
 def parse_line(line, lineno):
     line = line.split("#")[0].strip()
     if not line:
@@ -124,7 +113,6 @@ def parse_line(line, lineno):
     if not source:
         raise ValueError(f"Line {lineno}: missing source")
     return ScheduleEntry(days, start, end, source)
-
 def load_config(path):
     print(f"[bgmus] Reading config from {path}")
     entries = []
@@ -138,7 +126,6 @@ def load_config(path):
                 print(f"[bgmus] Config error: {e}", file=sys.stderr)
                 sys.exit(1)
     return entries
-
 # Source resolution
 def load_playlist(path):
     """Load files from a playlist file or directory."""
@@ -156,28 +143,23 @@ def load_playlist(path):
             if line and not line.startswith("#"):
                 files.append(line)
     return files
-
 def is_playlist_or_dir(path):
     p = Path(path)
     if p.is_dir():
         return True
     return p.suffix.lower() not in SUPPORTED
-
 class SequentialPlaylist:
     def __init__(self, files):
         self.files = files
         self.index = 0
-
     def next(self):
         if not self.files:
             return None, False
         f = self.files[self.index % len(self.files)]
         self.index += 1
         return f, False
-
 class ContinuingPlaylist:
     """Persistent playlist that remembers position across sessions."""
-
     def __init__(self, playlist_path, random_fill=False):
         self.playlist_path = Path(playlist_path)
         if self.playlist_path.is_dir():
@@ -188,7 +170,6 @@ class ContinuingPlaylist:
         self.files       = load_playlist(playlist_path)
         self.index       = self._load_state()
         self.exhausted   = self.index >= len(self.files)
-
     def _load_state(self):
         try:
             data = json.loads(self.state_path.read_text())
@@ -197,13 +178,11 @@ class ContinuingPlaylist:
             return idx
         except Exception:
             return 0
-
     def _save_state(self):
         try:
             self.state_path.write_text(json.dumps({"index": self.index}))
         except Exception as e:
             print(f"[bgmus] Warning: could not save continuing state: {e}", file=sys.stderr)
-
     def next(self):
         if not self.files:
             return None, False
@@ -222,7 +201,6 @@ class ContinuingPlaylist:
                 f = random.choice(self.files)
                 return f, False
             return None, False
-
 def resolve_source(source, config_dir, playlists):
     if source.startswith("continuing+random:"):
         spec = source[len("continuing+random:"):]
@@ -258,14 +236,12 @@ def resolve_source(source, config_dir, playlists):
             print(f"[bgmus] Warning: unsupported format {ext!r}, skipping {path}", file=sys.stderr)
             return lambda: (None, False)
         return lambda: (path, True)
-
 # Player
 class Player:
     def __init__(self):
         self._vol    = 1.0
         self.looping = False
         self._playing = False
-
     def play(self, path, loop=False):
         self.stop()
         try:
@@ -279,11 +255,9 @@ class Player:
         except Exception as e:
             print(f"[bgmus] Error playing {path}: {e}", file=sys.stderr)
             self._playing = False
-
     def set_volume(self, vol):
         self._vol = max(0.0, min(1.0, vol))
         mixer.music.set_volume(self._vol)
-
     def fade_out(self):
         if not self.is_playing():
             return
@@ -293,21 +267,17 @@ class Player:
             self.set_volume(self._vol - step)
             time.sleep(interval)
         self.stop()
-
     def stop(self):
         mixer.music.stop()
         self._playing = False
         self.looping  = False
-
     def is_playing(self):
         return mixer.music.get_busy()
-
 # Scheduler
 def in_range(start, end, hour, minute):
     if start[0] is None:
         return start[1] <= minute < end[1]
     return start <= (hour, minute) < end
-
 def next_event_time(entries, now):
     candidates = []
     for entry in entries:
@@ -329,7 +299,6 @@ def next_event_time(entries, now):
                         candidates.append(t)
                         break
     return min(candidates) if candidates else None
-
 def active_entry(entries, now):
     dow = now.weekday()
     for entry in entries:
@@ -338,23 +307,19 @@ def active_entry(entries, now):
         if in_range(entry.start, entry.end, now.hour, now.minute):
             return entry
     return None
-
 def make_watcher(config_path):
     inotify = inotify_simple.INotify()
     flags   = inotify_simple.flags.CLOSE_WRITE | inotify_simple.flags.MOVED_TO
     inotify.add_watch(str(Path(config_path).parent), flags)
     return inotify
-
 def config_changed(inotify, config_path):
     """Check for any queued inotify events without blocking."""
     events = inotify.read(timeout=0)
     name   = Path(config_path).name
-
     matched = [e for e in events if e.name == name]
     for e in matched:
         print(f"[bgmus] inotify event: {e.name!r} flags={inotify_simple.flags.from_mask(e.mask)}")
     return bool(matched)
-
 def wait_for_change_or_timeout(inotify, config_path, sleep_secs):
     """Sleep for sleep_secs, but wake up early if config file changes."""
     timeout_ms = int(sleep_secs * 1000)
@@ -364,7 +329,6 @@ def wait_for_change_or_timeout(inotify, config_path, sleep_secs):
     for e in matched:
         print(f"[bgmus] inotify event: {e.name!r} flags={inotify_simple.flags.from_mask(e.mask)}")
     return bool(matched)
-
 def reload_config(config_path, entries, playlists, current_entry, current_next):
     try:
         entries       = load_config(config_path)
@@ -375,7 +339,6 @@ def reload_config(config_path, entries, playlists, current_entry, current_next):
     except SystemExit:
         print("[bgmus] Config reload failed, keeping old schedule", file=sys.stderr)
     return entries, playlists, current_entry, current_next
-
 def run(config_path):
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     config_dir    = Path(config_path).parent.resolve()
@@ -393,10 +356,8 @@ def run(config_path):
                 print("[bgmus] Config changed, reloading...")
                 entries, playlists, current_entry, current_next = reload_config(
                     config_path, entries, playlists, current_entry, current_next)
-
             now   = datetime.now()
             entry = active_entry(entries, now)
-
             if entry != current_entry:
                 print(f"[bgmus] Slot change at {now.strftime('%H:%M:%S')}: {current_entry} -> {entry}")
                 if player.is_playing():
@@ -422,7 +383,6 @@ def run(config_path):
                         print(f"[bgmus] No next track resolved for {entry.source} — staying silent")
                 else:
                     print(f"[bgmus] No resolver for {entry.source} — not playing")
-
             next_wake = next_event_time(entries, datetime.now())
             if next_wake:
                 sleep_secs = (next_wake - datetime.now()).total_seconds()
@@ -437,13 +397,11 @@ def run(config_path):
                         config_path, entries, playlists, current_entry, current_next)
             else:
                 wait_for_change_or_timeout(inotify, config_path, 60)
-
     except KeyboardInterrupt:
         print("\n[bgmus] Stopping...")
         player.fade_out()
         mixer.quit()
         sys.exit(0)
-
 # Play mode
 def run_play(config_path, file_path=None):
     """Play a specific file or the current active slot, then exit."""
@@ -468,15 +426,12 @@ def run_play(config_path, file_path=None):
             sys.exit(1)
         path = nxt
         print(f"[bgmus] --play: active slot is {entry}")
-
     player = Player()
     player.play(path, loop=loop)
-
     if not player.is_playing():
         print("[bgmus] --play: playback failed to start (see error above).", file=sys.stderr)
         mixer.quit()
         sys.exit(1)
-
     print("[bgmus] Press Ctrl+C to stop.")
     try:
         while player.is_playing():
@@ -485,10 +440,48 @@ def run_play(config_path, file_path=None):
     except KeyboardInterrupt:
         print("\n[bgmus] Stopping...")
         player.fade_out()
-
     mixer.quit()
     sys.exit(0)
-
+# Check mode
+def run_check(config_path, entries):
+    print(f"Loaded {len(entries)} entries:")
+    for e in entries:
+        print(f"  {e}")
+    config_dir = Path(config_path).parent.resolve()
+    errors = []
+    print()
+    for entry in entries:
+        source = entry.source
+        # Strip prefixes
+        for prefix in ("continuing+random:", "continuing:", "random:"):
+            if source.startswith(prefix):
+                source = source[len(prefix):]
+                break
+        # Handle comma-separated files
+        paths = [s.strip() for s in source.split(",")] if "," in source else [source]
+        for p in paths:
+            full = config_dir / p
+            if full.is_dir():
+                playable = [f for f in full.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED]
+                if not playable:
+                    errors.append(f"  ERROR: directory has no playable files: {full}")
+                else:
+                    print(f"  OK (dir, {len(playable)} files): {full}")
+            elif full.is_file():
+                if full.suffix.lower() not in SUPPORTED:
+                    errors.append(f"  ERROR: unsupported format: {full}")
+                else:
+                    print(f"  OK (file): {full}")
+            else:
+                errors.append(f"  ERROR: not found: {full}")
+    if errors:
+        print("\nProblems found:")
+        for e in errors:
+            print(e)
+        sys.exit(1)
+    else:
+        print("\nAll files OK.")
+    sys.exit(0)
 # CLI
 def main():
     parser = argparse.ArgumentParser(
@@ -498,29 +491,20 @@ def main():
     )
     parser.add_argument("config", help="Path to schedule config file")
     parser.add_argument("--check", action="store_true",
-                        help="Parse config and print schedule, then exit")
+                        help="Parse config, print schedule, and verify all files exist, then exit")
     parser.add_argument("--play", metavar="FILE", nargs="?", const=True,
                         help="Play a file immediately and exit (omit FILE to play current active slot)")
     args = parser.parse_args()
-
     if not os.path.exists(args.config):
         print(f"[bgmus] Config not found: {args.config}", file=sys.stderr)
         sys.exit(1)
-
     entries = load_config(args.config)
-
     if args.check:
-        print(f"Loaded {len(entries)} entries:")
-        for e in entries:
-            print(f"  {e}")
-        sys.exit(0)
-
+        run_check(args.config, entries)
     if args.play is not None:
         file_path = None if args.play is True else args.play
         run_play(args.config, file_path)
         return
-
     run(args.config)
-
 if __name__ == "__main__":
     main()

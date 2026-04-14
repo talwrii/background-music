@@ -41,7 +41,6 @@ Then run: `bgmus config`
 `continuing` - keep on playing through a playlist or direction between different sessions
 `continuing+random` - keep on playing through a playlist then randomize until the session ends.
 
-
 ## Hacking
 I encouraage your to fork this and call it `bgmusic-something`. You can then tell me about this fork on github as a PR and I will loot your features :D and cite you.
 
