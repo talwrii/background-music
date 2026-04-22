@@ -42,6 +42,17 @@ Then run: `bgmus config`
 `continuing+random` - keep on playing through a playlist then randomize until the session ends.
 
 
+## Remote control
+It can be convenient to pause playback for a period of time, for example when taking a phone call. Or play another song. For these use cases a remote control is applied.
+
+`bgmus play song.wav` plays a song 
+`bgmus pause 1h` stops playing for an hour. I deliberately do not have an indefinite resume command
+`bgmus resume` resumes playing if there is a pause.
+
+
+If you want to use and control multiple bgmus instances you can use `--socket` both on invocation and when using a remote control.
+
+
 ## Hacking
 I encouraage your to fork this and call it `bgmusic-something`. You can then tell me about this fork on github as a PR and I will loot your features :D and cite you.
 
