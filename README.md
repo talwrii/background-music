@@ -41,6 +41,7 @@ Then run: `bgmus config`
 `continuing` - keep on playing through a playlist or direction between different sessions
 `continuing+random` - keep on playing through a playlist then randomize until the session ends.
 
+<<<<<<< HEAD
 
 ## Remote control
 It can be convenient to pause playback for a period of time, for example when taking a phone call. Or play another song. For these use cases a remote control is applied.
@@ -53,6 +54,8 @@ It can be convenient to pause playback for a period of time, for example when ta
 If you want to use and control multiple bgmus instances you can use `--socket` both on invocation and when using a remote control.
 
 
+=======
+>>>>>>> origin/master
 ## Hacking
 I encouraage your to fork this and call it `bgmusic-something`. You can then tell me about this fork on github as a PR and I will loot your features :D and cite you.
 

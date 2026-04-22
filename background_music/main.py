@@ -5,12 +5,11 @@ Plays music according to a time-based schedule, with fade between slots.
 
 Usage:
     bgmus <config>                  Run the scheduler daemon
-    bgmus --check <config>          Parse and print the schedule, then exit
-    bgmus --play <config>           Play the current active slot immediately
-    bgmus --play FILE <config>      Play a specific file immediately
-    bgmus --cmd "pause 1h"          Send a command to a running daemon
-    bgmus --cmd "play FILE"         Tell running daemon to play FILE, then resume
-    bgmus --cmd status              Ask running daemon what it's doing
+    bgmus --check <config>          Parse and verify config, then exit
+    bgmus pause DURATION            Pause a running daemon (e.g. "bgmus pause 1h")
+    bgmus resume                    Cancel an active pause
+    bgmus play FILE                 Tell running daemon to play FILE, then resume schedule
+    bgmus status                    Ask a running daemon what it's doing
     bgmus --socket PATH ...         Override default socket location
 
 Config format:
@@ -68,11 +67,11 @@ config format:
   continuing:  playlist with persistent position between sessions
   continuing+random: persistent position, then random fill when exhausted
 
-remote control:
-  bgmus --cmd "pause 1h"           # pause daemon for 1 hour
-  bgmus --cmd resume               # cancel an active pause
-  bgmus --cmd "play /path/song.wav"  # interrupt, play once, resume schedule
-  bgmus --cmd status               # print daemon status
+remote control (talk to a running daemon):
+  bgmus pause 1h                   # pause daemon for 1 hour
+  bgmus resume                     # cancel an active pause
+  bgmus play /path/song.wav        # interrupt, play once, resume schedule
+  bgmus status                     # print daemon status
 """
 
 # Socket location
@@ -693,47 +692,7 @@ def run(config_path, socket_path):
             pass
         sys.exit(0)
 
-# --- Play mode (unchanged behaviour) ---
-def run_play(config_path, file_path=None):
-    init_audio()
-    config_dir = Path(config_path).parent.resolve()
-    if file_path:
-        path = file_path
-        loop = False
-        print(f"[bgmus] --play: forcing playback of {path}")
-    else:
-        entries = load_config(config_path)
-        entry = active_entry(entries, datetime.now())
-        if not entry:
-            print("[bgmus] --play: no active slot right now. Check your schedule with --check.", file=sys.stderr)
-            mixer.quit()
-            sys.exit(1)
-        playlists = {}
-        nxt, loop = resolve_source(entry.source, config_dir, playlists)()
-        if not nxt:
-            print(f"[bgmus] --play: could not resolve a file for slot {entry}", file=sys.stderr)
-            mixer.quit()
-            sys.exit(1)
-        path = nxt
-        print(f"[bgmus] --play: active slot is {entry}")
-    player = Player()
-    player.play(path, loop=loop)
-    if not player.is_playing():
-        print("[bgmus] --play: playback failed to start (see error above).", file=sys.stderr)
-        mixer.quit()
-        sys.exit(1)
-    print("[bgmus] Press Ctrl+C to stop.")
-    try:
-        while player.is_playing():
-            time.sleep(1)
-        print("[bgmus] Playback finished.")
-    except KeyboardInterrupt:
-        print("\n[bgmus] Stopping...")
-        player.fade_out()
-    mixer.quit()
-    sys.exit(0)
-
-# --- Command client (--cmd) ---
+# --- Command client ---
 def send_command(socket_path, cmd):
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -762,52 +721,94 @@ def send_command(socket_path, cmd):
         print(f"[bgmus] Failed to send command: {e}", file=sys.stderr)
         sys.exit(2)
 
+# --- Check mode ---
+def run_check(config_path, entries):
+    print(f"Loaded {len(entries)} entries:")
+    for e in entries:
+        print(f"  {e}")
+    config_dir = Path(config_path).parent.resolve()
+    errors = []
+    print()
+    for entry in entries:
+        source = entry.source
+        # Strip prefixes
+        for prefix in ("continuing+random:", "continuing:", "random:"):
+            if source.startswith(prefix):
+                source = source[len(prefix):]
+                break
+        # Handle comma-separated files
+        paths = [s.strip() for s in source.split(",")] if "," in source else [source]
+        for p in paths:
+            full = config_dir / p
+            if full.is_dir():
+                playable = [f for f in full.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED]
+                if not playable:
+                    errors.append(f"  ERROR: directory has no playable files: {full}")
+                else:
+                    print(f"  OK (dir, {len(playable)} files): {full}")
+            elif full.is_file():
+                if full.suffix.lower() not in SUPPORTED:
+                    errors.append(f"  ERROR: unsupported format: {full}")
+                else:
+                    print(f"  OK (file): {full}")
+            else:
+                errors.append(f"  ERROR: not found: {full}")
+    if errors:
+        print("\nProblems found:")
+        for e in errors:
+            print(e)
+        sys.exit(1)
+    else:
+        print("\nAll files OK.")
+    sys.exit(0)
+
 # --- CLI ---
+COMMANDS = {"pause", "resume", "play", "status"}
+
 def main():
     parser = argparse.ArgumentParser(
         description="Background music scheduler",
         epilog=CONFIG_FORMAT,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        usage="bgmus [--socket PATH] {CONFIG | pause DURATION | resume | play FILE | status} [--check]",
     )
-    parser.add_argument("config", nargs="?", help="Path to schedule config file (not needed for --cmd)")
+    parser.add_argument("args", nargs="*",
+                        help="Either a config path (to run the daemon) or a command (pause|resume|play|status) with its arguments")
     parser.add_argument("--check", action="store_true",
-                        help="Parse config and print schedule, then exit")
-    parser.add_argument("--play", metavar="FILE", nargs="?", const=True,
-                        help="Play a file immediately and exit (omit FILE to play current active slot)")
-    parser.add_argument("--cmd", metavar="COMMAND",
-                        help="Send a command to a running daemon, e.g. 'pause 1h', 'play /path.wav', 'status'")
+                        help="Parse config, print schedule, and verify all files exist, then exit")
     parser.add_argument("--socket", metavar="PATH", default=None,
                         help=f"Override socket path (default: {default_socket_path()})")
-    args = parser.parse_args()
+    ns = parser.parse_args()
 
-    socket_path = args.socket or default_socket_path()
+    socket_path = ns.socket or default_socket_path()
 
-    # --cmd: send-and-exit, doesn't need a config
-    if args.cmd is not None:
-        send_command(socket_path, args.cmd)
+    if not ns.args:
+        parser.error("need either a config path or a command (pause|resume|play|status)")
+
+    first = ns.args[0]
+
+    # Subcommand mode — send to running daemon and exit
+    if first in COMMANDS:
+        if ns.check:
+            parser.error("--check cannot be combined with a remote command")
+        cmd_line = " ".join(ns.args)
+        send_command(socket_path, cmd_line)
         return
 
-    # All other modes need a config
-    if not args.config:
-        parser.error("config is required (unless using --cmd)")
-    if not os.path.exists(args.config):
-        print(f"[bgmus] Config not found: {args.config}", file=sys.stderr)
+    # Otherwise, treat first arg as config path (daemon or check mode)
+    if len(ns.args) > 1:
+        parser.error(f"unexpected extra arguments: {ns.args[1:]}")
+    config_path = first
+    if not os.path.exists(config_path):
+        print(f"[bgmus] Config not found: {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    entries = load_config(args.config)
+    entries = load_config(config_path)
 
-    if args.check:
-        print(f"Loaded {len(entries)} entries:")
-        for e in entries:
-            print(f"  {e}")
-        sys.exit(0)
+    if ns.check:
+        run_check(config_path, entries)
 
-    if args.play is not None:
-        file_path = None if args.play is True else args.play
-        run_play(args.config, file_path)
-        return
-
-    run(args.config, socket_path)
+    run(config_path, socket_path)
 
 if __name__ == "__main__":
     main()
